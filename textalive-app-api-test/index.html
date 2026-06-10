@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TextAlive 歌詞全文取得</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <main>
+      <h1>TextAlive 歌詞全文取得</h1>
+      <p class="description">
+        アプリトークンとTextAlive対応楽曲のURLを入力してください。
+      </p>
+
+      <form id="lyrics-form">
+        <label>
+          アプリトークン
+          <input
+            id="app-token"
+            type="password"
+            autocomplete="off"
+            placeholder="TextAlive for Developersで発行したトークン"
+            required
+          >
+        </label>
+
+        <label>
+          楽曲URL
+          <input
+            id="song-url"
+            type="url"
+            placeholder="https://www.youtube.com/watch?v=..."
+            required
+          >
+        </label>
+
+        <button id="load-button" type="submit">歌詞を取得</button>
+      </form>
+
+      <p id="status" role="status">入力待ち</p>
+
+      <section>
+        <div class="lyrics-heading">
+          <h2>歌詞全文</h2>
+          <button id="copy-button" type="button" disabled>コピー</button>
+        </div>
+        <pre id="lyrics">ここに歌詞が表示されます。</pre>
+      </section>
+
+      <div id="media"></div>
+    </main>
+
+    <script src="./node_modules/axios/dist/axios.min.js"></script>
+    <script src="./node_modules/textalive-app-api/dist/index.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -4,7 +4,7 @@ from shazamio import Shazam
 
 async def main():
     shazam = Shazam()
-    result = await shazam.recognize("Assets/etelsiana.mp3")
+    result = await shazam.recognize("Assets/melty.mp3")
 
     if result.get("matches") and "track" in result:
         track = result["track"]

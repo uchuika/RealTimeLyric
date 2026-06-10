@@ -10,24 +10,64 @@
         <main>
             <div>
                 Open
-                <button onClick="onSelectMusic()">Open Music Files</button>
+                <button id="open-button" onclick="onSelectMusic()">Open Music Files</button>
             </div>
             <ul id="musics">
             </ul>
         </main>
         <script>
-            async function onSelectMusic(){
-                let res = await pywebview.api.selectMusic();
-                console.log(res);
-                updateList(res);
-            }
-            async function updateList(files){
-                if(files == null) return;
-                let text = "";
-                for(const file of files){
-                text += "<li>" + file + "</li>";
+            async function onSelectMusic() {
+                const button = document.getElementById("open-button");
+                const list = document.getElementById("musics");
+                button.disabled = true;
+                list.textContent = "解析中...";
+
+                try {
+                    const results = await pywebview.api.selectMusic();
+                    updateList(results);
+                } catch (error) {
+                    list.textContent = "エラーが発生しました: " + error;
+                } finally {
+                    button.disabled = false;
                 }
-                document.getElementById("musics").innerHTML = text;
+            }
+
+            function updateList(results) {
+                const list = document.getElementById("musics");
+                list.replaceChildren();
+
+                for (const result of results) {
+                    const item = document.createElement("li");
+
+                    if (!result.recognized) {
+                        item.textContent = result.file + " - " + result.message;
+                        list.appendChild(item);
+                        continue;
+                    }
+
+                    if (result.imageUrl) {
+                        const image = document.createElement("img");
+                        image.src = result.imageUrl;
+                        image.alt = result.title + "のカバー画像";
+                        image.width = 100;
+                        item.appendChild(image);
+                    }
+
+                    const description = document.createElement("span");
+                    description.textContent =
+                        result.title + " / " + result.artist;
+                    item.appendChild(description);
+
+                    if (result.shazamUrl) {
+                        const link = document.createElement("a");
+                        link.href = result.shazamUrl;
+                        link.textContent = " Shazamで開く";
+                        link.target = "_blank";
+                        item.appendChild(link);
+                    }
+
+                    list.appendChild(item);
+                }
             }
         </script>
     </body>

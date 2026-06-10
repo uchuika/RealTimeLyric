@@ -1,7 +1,5 @@
 import asyncio
-from pathlib import Path
 
-import aiohttp
 from shazamio import Shazam
 import webview
 
@@ -16,47 +14,46 @@ class Api:
 
     def selectMusic(self):
         file_types = ('Audio Files (*.mp3)', 'All files (*.*)')
-        result = window.create_file_dialog(
+        music_paths = window.create_file_dialog(
             webview.OPEN_DIALOG, allow_multiple=True, file_types=file_types)
-        print(result)
-        for music_path in result:
+
+        if not music_paths:
+            return []
+
+        return [
             asyncio.run(analyzeMusic(music_path))
-        return result
+            for music_path in music_paths
+        ]
 
 
 async def analyzeMusic(music_path):
     shazam = Shazam()
-    result = await shazam.recognize(music_path)
+    try:
+        result = await shazam.recognize(music_path)
+    except Exception as error:
+        return {
+            "recognized": False,
+            "file": music_path,
+            "message": f"解析に失敗しました: {error}",
+        }
 
-    if result.get("matches") and "track" in result:
-        track = result["track"]
-        print(f"曲名: {track.get('title', '不明')}")
-        print(f"アーティスト: {track.get('subtitle', '不明')}")
-        print(f"Shazam URL: {track.get('share', {}).get('href', 'なし')}")
+    track = result.get("track")
+    if not result.get("matches") or not track:
+        return {
+            "recognized": False,
+            "file": music_path,
+            "message": "曲を特定できませんでした",
+        }
 
-        images = track.get("images", {})
-        image_url = images.get("coverarthq") or images.get("converart")
-
-        if not image_url:
-            print("ジャケット画像がありません")
-            return
-
-        print(f"曲名: {track.get('title')}")
-        print(f"画像URL: {image_url}")
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(image_url) as response:
-                response.raise_for_status()
-                Path("cover.jpg").write_bytes(await response.read())
-
-        print("cover.jpg に保存しました")
-    else:
-        print("曲を特定できませんでした")
-
-'''
-if __name__ == "__main__":
-    asyncio.run(analyzeMusic())
-'''
+    images = track.get("images", {})
+    return {
+        "recognized": True,
+        "file": music_path,
+        "title": track.get("title", "不明"),
+        "artist": track.get("subtitle", "不明"),
+        "imageUrl": images.get("coverarthq") or images.get("coverart"),
+        "shazamUrl": track.get("share", {}).get("href"),
+    }
 
 api = Api()
 window = webview.create_window(
