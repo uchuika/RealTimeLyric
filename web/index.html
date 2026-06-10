@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>RealTimeLyric</title>
+    </head>
+    <body>
+        <h1>RealTimeLyric</h1>
+        <main>
+            <div>
+                Open
+                <button onClick="onSelectMusic()">Open Music Files</button>
+            </div>
+            <ul id="musics">
+            </ul>
+        </main>
+        <script>
+            async function onSelectMusic(){
+                let res = await pywebview.api.selectMusic();
+                console.log(res);
+                updateList(res);
+            }
+            async function updateList(files){
+                if(files == null) return;
+                let text = "";
+                for(const file of files){
+                text += "<li>" + file + "</li>";
+                }
+                document.getElementById("musics").innerHTML = text;
+            }
+        </script>
+    </body>
+</html>
