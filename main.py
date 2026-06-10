@@ -19,12 +19,14 @@ class Api:
         result = window.create_file_dialog(
             webview.OPEN_DIALOG, allow_multiple=True, file_types=file_types)
         print(result)
+        for music_path in result:
+            asyncio.run(analyzeMusic(music_path))
         return result
 
 
-async def main():
+async def analyzeMusic(music_path):
     shazam = Shazam()
-    result = await shazam.recognize("Assets/zerotalking.mp3")
+    result = await shazam.recognize(music_path)
 
     if result.get("matches") and "track" in result:
         track = result["track"]
@@ -51,9 +53,10 @@ async def main():
     else:
         print("曲を特定できませんでした")
 
-
+'''
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(analyzeMusic())
+'''
 
 api = Api()
 window = webview.create_window(
