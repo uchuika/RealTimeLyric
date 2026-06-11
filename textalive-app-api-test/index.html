@@ -10,32 +10,59 @@
     <main>
       <h1>TextAlive 歌詞全文取得</h1>
       <p class="description">
-        アプリトークンとTextAlive対応楽曲のURLを入力してください。
+        TextAlive公式サイトと同じSongle登録楽曲から検索し、歌詞を取得します。
+        YouTube、ニコニコ動画、Piapro、SoundCloudなどの楽曲に対応します。
       </p>
 
-      <form id="lyrics-form">
+      <section class="settings">
+        <h2>API設定</h2>
         <label>
-          アプリトークン
+          TextAlive アプリトークン
           <input
             id="app-token"
             type="password"
             autocomplete="off"
             placeholder="TextAlive for Developersで発行したトークン"
-            required
           >
         </label>
+        <p class="hint">
+          検索にはSongleの公式検索を利用するため、YouTube Data APIキーは不要です。
+        </p>
+      </section>
 
+      <form id="search-form">
         <label>
-          楽曲URL
-          <input
-            id="song-url"
-            type="url"
-            placeholder="https://www.youtube.com/watch?v=..."
-            required
-          >
+          曲名・アーティスト名
+          <div class="input-row">
+            <input
+              id="search-query"
+              type="search"
+              placeholder="例: 初音ミク 千本桜"
+              required
+            >
+            <button id="search-button" type="submit">楽曲を検索</button>
+          </div>
         </label>
+      </form>
 
-        <button id="load-button" type="submit">歌詞を取得</button>
+      <section id="results-section" hidden>
+        <h2>検索結果</h2>
+        <div id="search-results" class="search-results"></div>
+      </section>
+
+      <form id="lyrics-form">
+        <label>
+          楽曲・動画共有サイトのURL
+          <div class="input-row">
+            <input
+              id="song-url"
+              type="url"
+              placeholder="https://www.youtube.com/watch?v=..."
+              required
+            >
+            <button id="load-button" type="submit">歌詞を取得</button>
+          </div>
+        </label>
       </form>
 
       <p id="status" role="status">入力待ち</p>

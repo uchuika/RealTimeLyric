@@ -1,10 +1,15 @@
-const form = document.querySelector("#lyrics-form");
+const searchForm = document.querySelector("#search-form");
+const lyricsForm = document.querySelector("#lyrics-form");
 const tokenInput = document.querySelector("#app-token");
+const searchQueryInput = document.querySelector("#search-query");
 const songUrlInput = document.querySelector("#song-url");
+const searchButton = document.querySelector("#search-button");
 const loadButton = document.querySelector("#load-button");
 const copyButton = document.querySelector("#copy-button");
 const statusElement = document.querySelector("#status");
 const lyricsElement = document.querySelector("#lyrics");
+const resultsSection = document.querySelector("#results-section");
+const searchResultsElement = document.querySelector("#search-results");
 const mediaElement = document.querySelector("#media");
 
 let player = null;
@@ -23,13 +28,70 @@ function disposePlayer() {
   mediaElement.replaceChildren();
 }
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
+function createResultCard(item) {
+  const card = document.createElement("article");
+  card.className = "result-card";
 
+  const source = document.createElement("div");
+  source.className = "source-badge";
+  source.textContent = item.source;
+
+  const details = document.createElement("div");
+  details.className = "result-details";
+
+  const title = document.createElement("h3");
+  title.textContent = item.title;
+
+  const artist = document.createElement("p");
+  artist.textContent = item.artist || "アーティスト不明";
+
+  const links = document.createElement("div");
+  links.className = "result-links";
+
+  const sourceLink = document.createElement("a");
+  sourceLink.href = item.sourceUrl;
+  sourceLink.target = "_blank";
+  sourceLink.rel = "noopener noreferrer";
+  sourceLink.textContent = "配信元";
+
+  const songleLink = document.createElement("a");
+  songleLink.href = item.songleUrl;
+  songleLink.target = "_blank";
+  songleLink.rel = "noopener noreferrer";
+  songleLink.textContent = "Songle";
+  links.append(sourceLink, songleLink);
+
+  const selectButton = document.createElement("button");
+  selectButton.type = "button";
+  selectButton.textContent = "この楽曲の歌詞を取得";
+  selectButton.addEventListener("click", () => {
+    songUrlInput.value = item.sourceUrl;
+    loadLyrics(item.sourceUrl);
+  });
+
+  details.append(title, artist, links, selectButton);
+  card.append(source, details);
+  return card;
+}
+
+async function searchSongs(query) {
+  const endpoint = new URL("/api/search", window.location.origin);
+  endpoint.searchParams.set("q", query);
+  const response = await fetch(endpoint);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+
+  return data.items;
+}
+
+async function loadLyrics(songUrl) {
   const token = tokenInput.value.trim();
-  const songUrl = songUrlInput.value.trim();
-  if (!token || !songUrl) {
-    setStatus("アプリトークンと楽曲URLを入力してください。", true);
+  if (!token) {
+    setStatus("TextAliveアプリトークンを入力してください。", true);
+    tokenInput.focus();
     return;
   }
 
@@ -53,7 +115,7 @@ form.addEventListener("submit", async (event) => {
 
       if (!lyricsText) {
         lyricsElement.textContent = "この楽曲から歌詞を取得できませんでした。";
-        setStatus("歌詞データが見つかりませんでした。", true);
+        setStatus("歌詞データが見つかりませんでした。別の検索結果をお試しください。", true);
       } else {
         lyricsElement.textContent = lyricsText;
         copyButton.disabled = false;
@@ -71,6 +133,39 @@ form.addEventListener("submit", async (event) => {
     setStatus(`取得に失敗しました: ${error.message || error}`, true);
     loadButton.disabled = false;
   }
+}
+
+searchForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const query = searchQueryInput.value.trim();
+
+  searchButton.disabled = true;
+  resultsSection.hidden = true;
+  searchResultsElement.replaceChildren();
+  setStatus(`「${query}」をSongleの登録楽曲から検索しています...`);
+
+  try {
+    const items = await searchSongs(query);
+    if (items.length === 0) {
+      setStatus("検索結果が見つかりませんでした。", true);
+      return;
+    }
+
+    searchResultsElement.append(...items.map(createResultCard));
+    resultsSection.hidden = false;
+    setStatus(`${items.length}件の楽曲が見つかりました。歌詞を取得する楽曲を選んでください。`);
+  } catch (error) {
+    console.error(error);
+    setStatus(`楽曲検索に失敗しました: ${error.message || error}`, true);
+  } finally {
+    searchButton.disabled = false;
+  }
+});
+
+lyricsForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  loadLyrics(songUrlInput.value.trim());
 });
 
 copyButton.addEventListener("click", async () => {
