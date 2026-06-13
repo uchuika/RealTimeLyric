@@ -4,9 +4,11 @@ import json
 from shazamio import Shazam
 import webview
 
+from typing import Any
 from html.parser import HTMLParser
 from urllib.request import quote, unquote, urlparse
 from urllib.request import Request, urlopen
+from urllib.parse import urlencode
 import xml.etree.ElementTree as ET
 
 
@@ -55,7 +57,7 @@ class Api:
 
 
 async def analyzeMusic(music_path):
-    shazam = Shazam()
+    shazam = Shazam(language="ja-JP", endpoint_country="JP")
     try:
         result = await shazam.recognize(music_path)
     except Exception as error:
@@ -73,10 +75,16 @@ async def analyzeMusic(music_path):
             "message": "曲を特定できませんでした",
         }
 
-    #
+    # タイトルとアーティスト名で検索
     keyword = track.get("title", "") + " " + track.get("subtitle", "")
     songs = search_songle(keyword=keyword)
     print("検索: " + keyword)
+
+    # 上の検索で見つからなければタイトルだけで検索
+    if not songs:
+        keyword = track.get("title", "")
+        songs = search_songle(keyword=keyword)
+        print("検索: " + keyword)
 
     if not songs:
         print("TextAliveに歌詞が登録されている楽曲は見つかりませんでした。")
@@ -97,6 +105,30 @@ async def analyzeMusic(music_path):
         "imageUrl": images.get("coverarthq") or images.get("coverart"),
         "shazamUrl": track.get("share", {}).get("href"),
     }
+
+'''
+def lookup_japanese_metadata(adam_id: str) -> dict[str, Any] | None:
+    # Apple Musicの日本向けカタログから楽曲情報を取得する
+    query = urlencode(
+        {
+            "id": adam_id,
+            "country": "JP",
+            "lang": "ja_jp",
+            "entity": "song",
+        }
+    )
+    url = f"https://itunes.apple.com/lookup?{query}"
+
+    with urlopen(url, timeout=10) as response:
+        data = json.load(response)
+
+    songs = [
+        item
+        for item in data.get("results", [])
+        if item.get("wrapperType") == "track"
+    ]
+    return songs[0] if songs else None
+'''
 
 
 def has_textalive_lyrics(songle_url):
