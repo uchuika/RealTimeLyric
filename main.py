@@ -113,6 +113,7 @@ async def analyzeMusic(music_path):
         "artist": track.get("subtitle", "不明"),
         "imageUrl": images.get("coverarthq") or images.get("coverart"),
         "shazamUrl": track.get("share", {}).get("href"),
+        "sourceUrl": song["source_url"],
         "songlUrl": songleurl,
     }
 
@@ -133,14 +134,26 @@ def has_textalive_lyrics(songle_url):
             return False
 
         data = json.loads("".join(parser.next_data))
+        if not isinstance(data, dict):
+            return False
 
-        return bool(
-            data.get("props", {})
-            .get("pageProps", {})
-            .get("song", {})
-            .get("status", {})
-            .get("lyrics")
-        )
+        props = data.get("props")
+        if not isinstance(props, dict):
+            return False
+
+        page_props = props.get("pageProps")
+        if not isinstance(page_props, dict):
+            return False
+
+        song = page_props.get("song")
+        if not isinstance(song, dict):
+            return False
+
+        status = song.get("status")
+        if not isinstance(status, dict):
+            return False
+
+        return bool(status.get("lyrics"))
 
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return False

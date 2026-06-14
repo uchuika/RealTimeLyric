@@ -1,117 +1,253 @@
 <!DOCTYPE html>
-<html lang="en">
-    <head>
-        <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
-        <script src="https://unpkg.com/textalive-app-api/dist/index.js"></script>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>RealTimeLyric</title>
-    </head>
-    <body>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RealTimeLyric</title>
+    <script src="https://unpkg.com/axios@1.7.9/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/textalive-app-api@0.4.0/dist/index.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 32px;
+            color: #222;
+            background: #f4f5f7;
+            font-family: sans-serif;
+        }
+
+        main {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        button {
+            padding: 10px 18px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        #status {
+            min-height: 24px;
+            margin: 16px 0;
+        }
+
+        #musics {
+            display: grid;
+            gap: 20px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .music-card {
+            padding: 20px;
+            border-radius: 10px;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .music-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .cover {
+            width: 120px;
+            height: 120px;
+            border-radius: 6px;
+            object-fit: cover;
+        }
+
+        .music-title {
+            margin: 0 0 8px;
+        }
+
+        .artist {
+            margin: 0 0 12px;
+            color: #555;
+        }
+
+        .lyrics {
+            max-height: 420px;
+            margin: 20px 0 0;
+            padding: 16px;
+            overflow-y: auto;
+            border-radius: 6px;
+            background: #f7f7f7;
+            font-family: inherit;
+            line-height: 1.8;
+            white-space: pre-wrap;
+        }
+
+        .error {
+            color: #b00020;
+        }
+    </style>
+</head>
+<body>
+    <main>
         <h1>RealTimeLyric</h1>
-        <main>
-            <div>
-                Open
-                <button id="open-button" onclick="onSelectMusic()">Open Music Files</button>
-            </div>
-            <ul id="musics">
-                <pre id="lyrics">ここに歌詞を表示</pre>
-                <div id="media"></div>
-            </ul>
-        </main>
-        <script>
-            
+        <button id="open-button" type="button">音楽ファイルを開く</button>
+        <p id="status"></p>
+        <ul id="musics"></ul>
+    </main>
 
-            let player = null;
+    <script>
+        const players = [];
 
-            async function loadLyrics(songurl){
-                lyricsText = "";
+        function loadLyrics(songUrl, lyricsElement) {
+            if (!songUrl) {
+                lyricsElement.textContent = "歌詞データのURLがありません。";
+                return;
+            }
 
+            if (!window.TextAliveApp) {
+                lyricsElement.textContent =
+                    "TextAliveライブラリを読み込めませんでした。";
+                return;
+            }
+
+            let player;
+            try {
                 player = new TextAliveApp.Player({
-                    app: { token: "dUdEvmeHtPhQlkOZ" },
+                    app: { token: "REDACTED_TEXTALIVE_TOKEN" },
                 });
+            } catch (error) {
+                console.error(error);
+                lyricsElement.textContent =
+                    "歌詞の取得を開始できませんでした。";
+                return;
+            }
+            players.push(player);
 
-                player.addListener({
-                    onVideoReady(video) {
-                        lyricsText = video.phrases
-                            .map((phrase) => phrase.text)
-                            .join("\n");
-                        
-                        if(!lyricsText) {
-                            lyricsText = "この楽曲から歌詞を取得できませんでした。"
-                        }
-                    },
-                });
+            let completed = false;
+            player.addListener({
+                onVideoReady(video) {
+                    if (completed) {
+                        return;
+                    }
+                    completed = true;
 
-                try{
-                    await player.createFromSongurl(songurl);
-                }catch(error){
-                    console.error(error);
-                    lyricsText = "歌詞の取得中にエラーが発生しました。";
-                }
-                return lyricsText
+                    const lyrics = (video.phrases || [])
+                        .map((phrase) => phrase.text)
+                        .filter(Boolean)
+                        .join("\n");
+
+                    lyricsElement.textContent =
+                        lyrics || "この楽曲から歌詞を取得できませんでした。";
+                },
+            });
+
+            try {
+                Promise.resolve(player.createFromSongUrl(songUrl)).catch(
+                    (error) => {
+                        console.error(error);
+                        completed = true;
+                        lyricsElement.textContent =
+                            "歌詞の取得中にエラーが発生しました。";
+                    }
+                );
+            } catch (error) {
+                console.error(error);
+                completed = true;
+                lyricsElement.textContent =
+                    "歌詞の取得中にエラーが発生しました。";
+            }
+        }
+
+        function createMusicCard(result) {
+            const item = document.createElement("li");
+            item.className = "music-card";
+
+            if (!result.recognized) {
+                item.classList.add("error");
+                item.textContent =
+                    (result.file ? result.file + " - " : "") + result.message;
+                return item;
             }
 
-            async function onSelectMusic() {
-                const button = document.getElementById("open-button");
-                const list = document.getElementById("musics");
-                button.disabled = true;
-                list.textContent = "解析中...";
+            const header = document.createElement("div");
+            header.className = "music-header";
 
-                try {
-                    const results = await pywebview.api.selectMusic();
-                    updateList(results);
-                } catch (error) {
-                    list.textContent = "エラーが発生しました: " + error;
-                } finally {
-                    button.disabled = false;
-                }
+            if (result.imageUrl) {
+                const image = document.createElement("img");
+                image.className = "cover";
+                image.src = result.imageUrl;
+                image.alt = result.title + "のカバー画像";
+                header.appendChild(image);
             }
 
-            function updateList(results) {
-                const list = document.getElementById("musics");
-                list.replaceChildren();
+            const details = document.createElement("div");
+            const title = document.createElement("h2");
+            title.className = "music-title";
+            title.textContent = result.title;
+            details.appendChild(title);
 
-                for (const result of results) {
-                    const item = document.createElement("li");
+            const artist = document.createElement("p");
+            artist.className = "artist";
+            artist.textContent = result.artist;
+            details.appendChild(artist);
 
-                    if (!result.recognized) {
-                        item.textContent = result.file + " - " + result.message;
-                        list.appendChild(item);
-                        continue;
-                    }
-
-                    if (result.imageUrl) {
-                        const image = document.createElement("img");
-                        image.src = result.imageUrl;
-                        image.alt = result.title + "のカバー画像";
-                        image.width = 100;
-                        item.appendChild(image);
-                    }
-
-                    const description = document.createElement("span");
-                    description.textContent =
-                        result.title + " / " + result.artist;
-                    item.appendChild(description);
-
-                    if (result.shazamUrl) {
-                        const link = document.createElement("a");
-                        link.href = result.shazamUrl;
-                        link.textContent = " Shazamで開く";
-                        link.target = "_blank";
-                        item.appendChild(link);
-                    }
-
-                    list.appendChild(item);
-                    lyricText = loadLyrics(result.songurl);
-
-                    const lyricElement = document.createElement("pre");
-                    lyricElement.textContent = lyricsText;
-                    item.appendChild(lyricElement);
-                }
-
-                
+            if (result.shazamUrl) {
+                const link = document.createElement("a");
+                link.href = result.shazamUrl;
+                link.textContent = "Shazamで開く";
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                details.appendChild(link);
             }
-        </script>
-    </body>
+
+            header.appendChild(details);
+            item.appendChild(header);
+
+            const lyricsElement = document.createElement("pre");
+            lyricsElement.className = "lyrics";
+            lyricsElement.textContent = "歌詞を取得しています...";
+            item.appendChild(lyricsElement);
+
+            loadLyrics(result.sourceUrl, lyricsElement);
+            return item;
+        }
+
+        function updateList(results) {
+            const list = document.getElementById("musics");
+            list.replaceChildren();
+
+            if (!results || results.length === 0) {
+                document.getElementById("status").textContent =
+                    "音楽ファイルが選択されませんでした。";
+                return;
+            }
+
+            for (const result of results) {
+                list.appendChild(createMusicCard(result));
+            }
+        }
+
+        async function onSelectMusic() {
+            const button = document.getElementById("open-button");
+            const status = document.getElementById("status");
+            button.disabled = true;
+            status.className = "";
+            status.textContent = "音楽を解析しています...";
+
+            try {
+                const results = await pywebview.api.selectMusic();
+                status.textContent = "";
+                updateList(results);
+            } catch (error) {
+                console.error(error);
+                status.textContent = "エラーが発生しました: " + error;
+                status.className = "error";
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        document
+            .getElementById("open-button")
+            .addEventListener("click", onSelectMusic);
+    </script>
+</body>
 </html>
