@@ -89,6 +89,13 @@ async def analyzeMusic(music_path):
     if not songs:
         print("TextAliveに歌詞が登録されている楽曲は見つかりませんでした。")
 
+    if not songs:
+        return {
+            "recognized": False,
+            "file": music_path,
+            "message": "TextAliveで歌詞が登録されている楽曲が見つかりませんでした",
+        }
+
     for index, song in enumerate(songs, start=1):
         print(f"\n{index}. {song['title']}")
         print(f"   アーティスト: {song['artist']}")
@@ -96,6 +103,8 @@ async def analyzeMusic(music_path):
         print(f"   楽曲URL: {song['source_url']}")
         print(f"   Songle: {song['songle_url']}")
 
+    song = songs[0]
+    songleurl = song['songle_url']
     images = track.get("images", {})
     return {
         "recognized": True,
@@ -104,31 +113,8 @@ async def analyzeMusic(music_path):
         "artist": track.get("subtitle", "不明"),
         "imageUrl": images.get("coverarthq") or images.get("coverart"),
         "shazamUrl": track.get("share", {}).get("href"),
+        "songlUrl": songleurl,
     }
-
-'''
-def lookup_japanese_metadata(adam_id: str) -> dict[str, Any] | None:
-    # Apple Musicの日本向けカタログから楽曲情報を取得する
-    query = urlencode(
-        {
-            "id": adam_id,
-            "country": "JP",
-            "lang": "ja_jp",
-            "entity": "song",
-        }
-    )
-    url = f"https://itunes.apple.com/lookup?{query}"
-
-    with urlopen(url, timeout=10) as response:
-        data = json.load(response)
-
-    songs = [
-        item
-        for item in data.get("results", [])
-        if item.get("wrapperType") == "track"
-    ]
-    return songs[0] if songs else None
-'''
 
 
 def has_textalive_lyrics(songle_url):

@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
     <head>
+        <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+        <script src="https://unpkg.com/textalive-app-api/dist/index.js"></script>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>RealTimeLyric</title>
@@ -13,9 +15,43 @@
                 <button id="open-button" onclick="onSelectMusic()">Open Music Files</button>
             </div>
             <ul id="musics">
+                <pre id="lyrics">ここに歌詞を表示</pre>
+                <div id="media"></div>
             </ul>
         </main>
         <script>
+            
+
+            let player = null;
+
+            async function loadLyrics(songurl){
+                lyricsText = "";
+
+                player = new TextAliveApp.Player({
+                    app: { token: "dUdEvmeHtPhQlkOZ" },
+                });
+
+                player.addListener({
+                    onVideoReady(video) {
+                        lyricsText = video.phrases
+                            .map((phrase) => phrase.text)
+                            .join("\n");
+                        
+                        if(!lyricsText) {
+                            lyricsText = "この楽曲から歌詞を取得できませんでした。"
+                        }
+                    },
+                });
+
+                try{
+                    await player.createFromSongurl(songurl);
+                }catch(error){
+                    console.error(error);
+                    lyricsText = "歌詞の取得中にエラーが発生しました。";
+                }
+                return lyricsText
+            }
+
             async function onSelectMusic() {
                 const button = document.getElementById("open-button");
                 const list = document.getElementById("musics");
@@ -67,7 +103,14 @@
                     }
 
                     list.appendChild(item);
+                    lyricText = loadLyrics(result.songurl);
+
+                    const lyricElement = document.createElement("pre");
+                    lyricElement.textContent = lyricsText;
+                    item.appendChild(lyricElement);
                 }
+
+                
             }
         </script>
     </body>
