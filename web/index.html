@@ -26,6 +26,12 @@
             cursor: pointer;
         }
 
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
         #status {
             min-height: 24px;
             margin: 16px 0;
@@ -88,13 +94,37 @@
 <body>
     <main>
         <h1>RealTimeLyric</h1>
-        <button id="open-button" type="button">音楽ファイルを開く</button>
+        <div class="controls">
+            <button id="open-button" type="button">音楽ファイルを開く</button>
+            <button id="listen-button" type="button">
+                自動認識を停止
+            </button>
+        </div>
         <p id="status"></p>
         <ul id="musics"></ul>
     </main>
 
     <script>
         const players = [];
+        const AUTO_RECOGNITION_INTERVAL_MS = 3000;
+        let automaticRecognitionEnabled = false;
+        let automaticRecognitionRunning = false;
+        let lastRecognizedTrack = "";
+
+        function wait(milliseconds) {
+            return new Promise((resolve) => setTimeout(resolve, milliseconds));
+        }
+
+        function disposePlayers() {
+            while (players.length > 0) {
+                const player = players.pop();
+                try {
+                    player.dispose();
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+        }
 
         function loadLyrics(songUrl, lyricsElement) {
             if (!songUrl) {
@@ -212,6 +242,7 @@
 
         function updateList(results) {
             const list = document.getElementById("musics");
+            disposePlayers();
             list.replaceChildren();
 
             if (!results || results.length === 0) {
@@ -227,8 +258,12 @@
 
         async function onSelectMusic() {
             const button = document.getElementById("open-button");
+            const listenButton = document.getElementById("listen-button");
             const status = document.getElementById("status");
+            const restartAutomaticRecognition = automaticRecognitionEnabled;
+            automaticRecognitionEnabled = false;
             button.disabled = true;
+            listenButton.disabled = true;
             status.className = "";
             status.textContent = "音楽を解析しています...";
 
@@ -242,12 +277,99 @@
                 status.className = "error";
             } finally {
                 button.disabled = false;
+                listenButton.disabled = false;
+                if (restartAutomaticRecognition) {
+                    startAutomaticRecognition();
+                }
             }
+        }
+
+        async function automaticRecognitionLoop() {
+            if (automaticRecognitionRunning) {
+                return;
+            }
+
+            automaticRecognitionRunning = true;
+            const openButton = document.getElementById("open-button");
+            const listenButton = document.getElementById("listen-button");
+            const status = document.getElementById("status");
+
+            while (automaticRecognitionEnabled) {
+                openButton.disabled = true;
+                status.className = "";
+                status.textContent =
+                    "再生中の音声を12秒間録音して自動認識しています...";
+
+                try {
+                    const results =
+                        await pywebview.api.recognizePlayingMusic();
+                    const result = results && results[0];
+
+                    if (result && result.recognized) {
+                        const trackKey = result.title + "\n" + result.artist;
+                        status.textContent =
+                            result.title + " / " + result.artist + " を認識しました";
+
+                        if (trackKey !== lastRecognizedTrack) {
+                            lastRecognizedTrack = trackKey;
+                            updateList(results);
+                        }
+                    } else if (result) {
+                        status.textContent = result.message;
+                    }
+                } catch (error) {
+                    console.error(error);
+                    status.textContent = "自動認識中にエラーが発生しました: " + error;
+                    status.className = "error";
+                }
+
+                openButton.disabled = false;
+                if (automaticRecognitionEnabled) {
+                    status.textContent += "。3秒後に再度認識します。";
+                    await wait(AUTO_RECOGNITION_INTERVAL_MS);
+                }
+            }
+
+            automaticRecognitionRunning = false;
+            openButton.disabled = false;
+            listenButton.disabled = false;
+            listenButton.textContent = "自動認識を開始";
+            status.className = "";
+            status.textContent = "自動認識を停止しました。";
+        }
+
+        function startAutomaticRecognition() {
+            automaticRecognitionEnabled = true;
+            document.getElementById("listen-button").textContent =
+                "自動認識を停止";
+            automaticRecognitionLoop();
+        }
+
+        function toggleAutomaticRecognition() {
+            if (automaticRecognitionEnabled) {
+                automaticRecognitionEnabled = false;
+                document.getElementById("listen-button").textContent =
+                    "停止処理中...";
+                document.getElementById("listen-button").disabled = true;
+                return;
+            }
+
+            document.getElementById("listen-button").disabled = false;
+            startAutomaticRecognition();
         }
 
         document
             .getElementById("open-button")
             .addEventListener("click", onSelectMusic);
+
+        document
+            .getElementById("listen-button")
+            .addEventListener("click", toggleAutomaticRecognition);
+
+        window.addEventListener("pywebviewready", () => {
+            document.getElementById("listen-button").disabled = false;
+            startAutomaticRecognition();
+        });
     </script>
 </body>
 </html>

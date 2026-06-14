@@ -1,5 +1,8 @@
 import asyncio
 import json
+import os
+import tempfile
+import wave
 
 from shazamio import Shazam
 import webview
@@ -10,6 +13,10 @@ from urllib.request import quote, unquote, urlparse
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
 import xml.etree.ElementTree as ET
+
+
+SYSTEM_AUDIO_RECORD_SECONDS = 12
+SYSTEM_AUDIO_CHUNK_SIZE = 1024
 
 
 class NextDataParser(HTMLParser):
@@ -54,6 +61,94 @@ class Api:
             asyncio.run(analyzeMusic(music_path))
             for music_path in music_paths
         ]
+
+    def recognizePlayingMusic(self):
+        audio_path = None
+
+        try:
+            audio_path = record_system_audio(SYSTEM_AUDIO_RECORD_SECONDS)
+            result = asyncio.run(analyzeMusic(audio_path))
+            result["file"] = "再生中の音声"
+            return [result]
+        except Exception as error:
+            return [{
+                "recognized": False,
+                "file": "再生中の音声",
+                "message": f"録音または解析に失敗しました: {error}",
+            }]
+        finally:
+            if audio_path:
+                try:
+                    os.remove(audio_path)
+                except OSError:
+                    pass
+
+
+def record_system_audio(seconds=SYSTEM_AUDIO_RECORD_SECONDS):
+    try:
+        import pyaudiowpatch as pyaudio
+    except ImportError as error:
+        raise RuntimeError(
+            "PyAudioWPatchがインストールされていません"
+        ) from error
+
+    audio = pyaudio.PyAudio()
+    stream = None
+    audio_path = None
+
+    try:
+        device = audio.get_default_wasapi_loopback()
+        channels = int(device["maxInputChannels"])
+        sample_rate = int(device["defaultSampleRate"])
+        audio_format = pyaudio.paInt16
+
+        if channels < 1:
+            raise RuntimeError("既定のスピーカーを録音できません")
+
+        stream = audio.open(
+            format=audio_format,
+            channels=channels,
+            rate=sample_rate,
+            input=True,
+            input_device_index=device["index"],
+            frames_per_buffer=SYSTEM_AUDIO_CHUNK_SIZE,
+        )
+
+        frames = []
+        frame_count = int(
+            sample_rate / SYSTEM_AUDIO_CHUNK_SIZE * seconds
+        )
+        for _ in range(frame_count):
+            frames.append(stream.read(
+                SYSTEM_AUDIO_CHUNK_SIZE,
+                exception_on_overflow=False,
+            ))
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".wav",
+            delete=False,
+        ) as temporary_file:
+            audio_path = temporary_file.name
+
+        with wave.open(audio_path, "wb") as wav_file:
+            wav_file.setnchannels(channels)
+            wav_file.setsampwidth(audio.get_sample_size(audio_format))
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(b"".join(frames))
+
+        return audio_path
+    except Exception:
+        if audio_path:
+            try:
+                os.remove(audio_path)
+            except OSError:
+                pass
+        raise
+    finally:
+        if stream:
+            stream.stop_stream()
+            stream.close()
+        audio.terminate()
 
 
 async def analyzeMusic(music_path):
