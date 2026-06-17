@@ -7,8 +7,9 @@ import wave
 from shazamio import Shazam
 import webview
 
-from typing import Any
+from typing import Any, Optional
 from html.parser import HTMLParser
+from urllib.error import HTTPError, URLError
 from urllib.request import quote, unquote, urlparse
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
@@ -17,6 +18,7 @@ import xml.etree.ElementTree as ET
 
 SYSTEM_AUDIO_RECORD_SECONDS = 12
 SYSTEM_AUDIO_CHUNK_SIZE = 1024
+LRCLIB_API_URL = "https://lrclib.net/api/get"
 
 
 class NextDataParser(HTMLParser):
@@ -164,6 +166,7 @@ async def analyzeMusic(music_path):
 
     track = result.get("track")
     if not result.get("matches") or not track:
+        print("曲を特定できませんでした")
         return {
             "recognized": False,
             "file": music_path,
@@ -175,20 +178,34 @@ async def analyzeMusic(music_path):
     songs = search_songle(keyword=keyword)
     print("検索: " + keyword)
 
-    # 上の検索で見つからなければタイトルだけで検索
-    if not songs:
-        keyword = track.get("title", "")
-        songs = search_songle(keyword=keyword)
-        print("検索: " + keyword)
-
     if not songs:
         print("TextAliveに歌詞が登録されている楽曲は見つかりませんでした。")
+        lyrics_data = search_lrclib_lyrics(
+            track_name=track.get("title", ""),
+            artist_name=track.get("subtitle", ""),
+        )
 
-    if not songs:
+        if lyrics_data:
+            lyrics_text = lyrics_data.get("plainLyrics")
+            images = track.get("images", {})
+            return {
+                "recognized": True,
+                "file": music_path,
+                "title": track.get("title", "不明"),
+                "artist": track.get("subtitle", "不明"),
+                "imageUrl": images.get("coverarthq") or images.get("coverart"),
+                "shazamUrl": track.get("share", {}).get("href"),
+                "lyricsProvider": "LRCLIB",
+                "lyricsText": lyrics_text,
+                "lyricsTrackName": lyrics_data.get("trackName"),
+                "lyricsArtistName": lyrics_data.get("artistName"),
+                "lyricsAlbumName": lyrics_data.get("albumName"),
+            }
+
         return {
             "recognized": False,
             "file": music_path,
-            "message": "TextAliveで歌詞が登録されている楽曲が見つかりませんでした",
+            "message": "TextAliveとLRCLIBのどちらにも歌詞が見つかりませんでした",
         }
 
     for index, song in enumerate(songs, start=1):
@@ -208,9 +225,52 @@ async def analyzeMusic(music_path):
         "artist": track.get("subtitle", "不明"),
         "imageUrl": images.get("coverarthq") or images.get("coverart"),
         "shazamUrl": track.get("share", {}).get("href"),
+        "lyricsProvider": "TextAlive",
         "sourceUrl": song["source_url"],
         "songlUrl": songleurl,
     }
+
+
+def search_lrclib_lyrics(
+    track_name: str,
+    artist_name: Optional[str] = None,
+    album_name: Optional[str] = None,
+    duration: Optional[int] = None,
+):
+    params = {"track_name": track_name}
+
+    if artist_name:
+        params["artist_name"] = artist_name
+    if album_name:
+        params["album_name"] = album_name
+    if duration:
+        params["duration"] = str(duration)
+
+    url = f"{LRCLIB_API_URL}?{urlencode(params)}"
+    request = Request(url, headers={
+        "Accept": "application/json",
+        "User-Agent": "RealTimeLyric/1.0",
+    })
+
+    try:
+        with urlopen(request, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            print("LRCLIBで歌詞がみつかりました")
+    except HTTPError as error:
+        if error.code != 404:
+            print(f"LRCLIB APIエラー: HTTP {error.code}")
+        return None
+    except (URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        print(f"LRCLIB APIへの接続に失敗しました: {error}")
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    if not data.get("syncedLyrics") and not data.get("plainLyrics"):
+        return None
+
+    return data
 
 
 def has_textalive_lyrics(songle_url):

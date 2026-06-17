@@ -164,6 +164,8 @@
                         .filter(Boolean)
                         .join("\n");
 
+                    
+
                     lyricsElement.textContent =
                         lyrics || "この楽曲から歌詞を取得できませんでした。";
                 },
@@ -236,7 +238,11 @@
             lyricsElement.textContent = "歌詞を取得しています...";
             item.appendChild(lyricsElement);
 
-            loadLyrics(result.sourceUrl, lyricsElement);
+            if (result.lyricsText) {
+                lyricsElement.textContent = result.lyricsText;
+            } else {
+                loadLyrics(result.sourceUrl, lyricsElement);
+            }
             return item;
         }
 
