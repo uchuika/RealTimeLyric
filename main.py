@@ -20,6 +20,8 @@ SYSTEM_AUDIO_RECORD_SECONDS = 12
 SYSTEM_AUDIO_CHUNK_SIZE = 1024
 LRCLIB_API_URL = "https://lrclib.net/api/get"
 
+latest_song = None
+
 
 class NextDataParser(HTMLParser):
     """TextAliveページに埋め込まれたNext.jsのJSONを取り出す。"""
@@ -44,6 +46,7 @@ class NextDataParser(HTMLParser):
 
 
 class Api:
+
     def add(self, a, b):
         print("python")
         return a + b
@@ -154,6 +157,8 @@ def record_system_audio(seconds=SYSTEM_AUDIO_RECORD_SECONDS):
 
 
 async def analyzeMusic(music_path):
+    global latest_song
+
     shazam = Shazam(language="ja-JP", endpoint_country="JP")
     try:
         result = await shazam.recognize(music_path)
@@ -178,6 +183,14 @@ async def analyzeMusic(music_path):
     songs = search_songle(keyword=keyword)
     print("検索: " + keyword)
 
+    if latest_song == keyword:
+        print("同じ曲なのでスキップしました。")
+        return {
+            "recognized": False,
+            "file": music_path,
+            "message": "同じ曲なのでスキップしました",
+        }
+
     if not songs:
         print("TextAliveに歌詞が登録されている楽曲は見つかりませんでした。")
         lyrics_data = search_lrclib_lyrics(
@@ -188,6 +201,7 @@ async def analyzeMusic(music_path):
         if lyrics_data:
             lyrics_text = lyrics_data.get("plainLyrics")
             images = track.get("images", {})
+            latest_song = keyword
             return {
                 "recognized": True,
                 "file": music_path,
@@ -218,6 +232,7 @@ async def analyzeMusic(music_path):
     song = songs[0]
     songleurl = song['songle_url']
     images = track.get("images", {})
+    latest_song = keyword
     return {
         "recognized": True,
         "file": music_path,
