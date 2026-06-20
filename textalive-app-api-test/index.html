@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TextAlive 歌詞全文取得</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <main>
+      <h1>TextAlive 歌詞全文取得</h1>
+      <p class="description">
+        TextAlive公式サイトと同じSongle登録楽曲から検索し、歌詞を取得します。
+        YouTube、ニコニコ動画、Piapro、SoundCloudなどの楽曲に対応します。
+      </p>
+
+      <section class="settings">
+        <h2>API設定</h2>
+        <label>
+          TextAlive アプリトークン
+          <input
+            id="app-token"
+            type="password"
+            autocomplete="off"
+            placeholder="TextAlive for Developersで発行したトークン"
+          >
+        </label>
+        <p class="hint">
+          検索にはSongleの公式検索を利用するため、YouTube Data APIキーは不要です。
+        </p>
+      </section>
+
+      <form id="search-form">
+        <label>
+          曲名・アーティスト名
+          <div class="input-row">
+            <input
+              id="search-query"
+              type="search"
+              placeholder="例: 初音ミク 千本桜"
+              required
+            >
+            <button id="search-button" type="submit">楽曲を検索</button>
+          </div>
+        </label>
+      </form>
+
+      <section id="results-section" hidden>
+        <h2>検索結果</h2>
+        <div id="search-results" class="search-results"></div>
+      </section>
+
+      <form id="lyrics-form">
+        <label>
+          楽曲・動画共有サイトのURL
+          <div class="input-row">
+            <input
+              id="song-url"
+              type="url"
+              placeholder="https://www.youtube.com/watch?v=..."
+              required
+            >
+            <button id="load-button" type="submit">歌詞を取得</button>
+          </div>
+        </label>
+      </form>
+
+      <p id="status" role="status">入力待ち</p>
+
+      <section>
+        <div class="lyrics-heading">
+          <h2>歌詞全文</h2>
+          <button id="copy-button" type="button" disabled>コピー</button>
+        </div>
+        <pre id="lyrics">ここに歌詞が表示されます。</pre>
+      </section>
+
+      <div id="media"></div>
+    </main>
+
+    <script src="./node_modules/axios/dist/axios.min.js"></script>
+    <script src="./node_modules/textalive-app-api/dist/index.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

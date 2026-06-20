@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RealTimeLyric</title>
+    <script src="https://unpkg.com/axios@1.7.9/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/textalive-app-api@0.4.0/dist/index.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 32px;
+            color: #222;
+            background: #f4f5f7;
+            font-family: sans-serif;
+        }
+
+        main {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        button {
+            padding: 10px 18px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        #status {
+            min-height: 24px;
+            margin: 16px 0;
+        }
+
+        #musics {
+            display: grid;
+            gap: 20px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .music-card {
+            padding: 20px;
+            border-radius: 10px;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .music-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .cover {
+            width: 120px;
+            height: 120px;
+            border-radius: 6px;
+            object-fit: cover;
+        }
+
+        .music-title {
+            margin: 0 0 8px;
+        }
+
+        .artist {
+            margin: 0 0 12px;
+            color: #555;
+        }
+
+        .lyrics {
+            max-height: 420px;
+            margin: 20px 0 0;
+            padding: 32px 24px;
+            overflow-y: auto;
+            border-radius: 12px;
+            background:  #f7f7f7;
+            font-family: inherit;
+            scroll-behavior: smooth;
+        }
+
+        .lyrics-line {
+            margin: 0;
+            padding: 10px 0;
+            color: #000000;
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            transition:
+                color 0.3s ease,
+                opacity 0.3s ease,
+                transform 0.3s ease;
+        }
+
+        .lyrics-line.is-past {
+            color: #848484;
+        }
+
+        .lyrics-line.is-active {
+            color: #1cb752;
+            opacity: 1;
+            transform: scale(1.03);
+        }
+
+        .error {
+            color: #b00020;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>RealTimeLyric</h1>
+        <div class="controls">
+            <button id="open-button" type="button">音楽ファイルを開く</button>
+            <button id="listen-button" type="button">
+                自動認識を停止
+            </button>
+        </div>
+        <p id="status"></p>
+        <ul id="musics"></ul>
+    </main>
+
+    <script>
+        const players = [];
+        const AUTO_RECOGNITION_INTERVAL_MS = 3000;
+        let automaticRecognitionEnabled = false;
+        let automaticRecognitionRunning = false;
+        let lastRecognizedTrack = "";
+
+        //同期用変数
+        let lyricSync = {
+            positionMs: 0,
+            updatedAt: 0,
+        };
+
+        function wait(milliseconds) {
+            return new Promise((resolve) => setTimeout(resolve, milliseconds));
+        }
+
+        //歌詞のタイミング更新用関数
+        function updateLyricPosition(estimatedPosition) {
+            lyricSync.positionMs = Math.max(0, Number(estimatedPosition || 0) * 1000);
+            lyricSync.updatedAt = performance.now();
+        }
+
+        function disposePlayers() {
+            if (activeAnimationFrameId !== null) {
+                cancelAnimationFrame(activeAnimationFrameId);
+                activeAnimationFrameId = null;
+            }
+
+            while (players.length > 0) {
+                const player = players.pop();
+                try {
+                    player.dispose();
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+        }
+
+        //受け取った歌詞データを変換
+        function parseLrc(syncedLyrics) {
+            const lines = [];
+
+            for (const rawLine of syncedLyrics.split(/\r?\n/)) {
+                const timestamps = [...rawLine.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)];
+
+                const text = rawLine.replace(/\[\d+:\d+(?:\.\d+)?\]/g, "").trim();
+
+                if (Object.keys(timestamps).length === 0) {
+                    return syncedLyrics;
+                }
+
+                //配列の中から時刻を取り出し
+                for(const match of timestamps) {
+                    const minutes = Number(match[1]);
+                    const seconds = Number(match[2]);
+
+                    lines.push({
+                        startTime: (minutes * 60 + seconds) * 1000,
+                        text,
+                    });
+                }
+            }
+
+            //再生が早いタイミング順で並び替え
+            lines.sort((a, b) => a.startTime - b.startTime);
+
+            //startTime: text: endTime
+            return lines.map((line, index) => ({
+                ...line,
+                endTime: lines[index + 1]?.startTime ?? Infinity,
+            }));
+        }
+
+        //LRCLIB用歌詞表示関数
+        let activeAnimationFrameId = null;
+
+        function loadLrclibLyrics(
+            syncedLyrics,
+            lyricsElement,
+            estimatedPosition
+        ) {
+            const phrases = parseLrc(syncedLyrics);
+        
+            if (phrases.length === 0) {
+                lyricsElement.textContent = syncedLyrics;4
+                return;
+            }
+        
+            updateLyricPosition(estimatedPosition);
+        
+            let lastPhrase = null;
+        
+            function updateLyrics() {
+                const elapsedMs =
+                    performance.now() - lyricSync.updatedAt;
+            
+                const positionMs =
+                    lyricSync.positionMs + elapsedMs;
+            
+                const phrase = phrases.find(
+                    (item) =>
+                        item.startTime <= positionMs &&
+                        positionMs < item.endTime
+                );
+            
+                if (phrase && phrase !== lastPhrase) {
+                    lastPhrase = phrase;
+                    lyricsElement.textContent = phrase.text;
+                }
+            
+                activeAnimationFrameId =
+                    requestAnimationFrame(updateLyrics);
+            }
+        
+            updateLyrics();
+        }
+
+        //TextAlive用歌詞表示関数
+        function loadLyrics(songUrl, lyricsElement, estimatedPosition) {
+            if (!songUrl) {
+                lyricsElement.textContent = "歌詞データのURLがありません。";
+                return;
+            }
+
+            if (!window.TextAliveApp) {
+                lyricsElement.textContent =
+                    "TextAliveライブラリを読み込めませんでした。";
+                return;
+            }
+
+            let player;
+            try {
+                player = new TextAliveApp.Player({
+                    app: { token: "REDACTED_TEXTALIVE_TOKEN" },
+                });
+            } catch (error) {
+                console.error(error);
+                lyricsElement.textContent =
+                    "歌詞の取得を開始できませんでした。";
+                return;
+            }
+            players.push(player);
+
+            //基準を設定
+            //const clockStartedAt = performance.now();
+            let animationFrameId = null;
+
+            let completed = false;
+            player.addListener({
+                onVideoReady(video) {
+                    const phrases = video.phrases || [];
+                    let lastPhrase = null;
+
+                    function updateLyrics() {
+                        const elapsedMs = performance.now() - lyricSync.updatedAt;
+                        const positionMs = lyricSync.positionMs + elapsedMs;
+
+                        const phrase = phrases.find(
+                            (item) =>
+                                item.startTime <= positionMs &&
+                                positionMs < item.endTime
+                        );
+
+                        if (phrase && phrase !== lastPhrase) {
+                            lastPhrase = phrase;
+                            lyricsElement.textContent = phrase.text;
+                        }
+
+                            animationFrameId = requestAnimationFrame(updateLyrics);
+                        }
+
+                    updateLyrics();
+                },
+            });
+
+            try {
+                Promise.resolve(player.createFromSongUrl(songUrl)).catch(
+                    (error) => {
+                        console.error(error);
+                        completed = true;
+                        lyricsElement.textContent =
+                            "歌詞の取得中にエラーが発生しました。";
+                    }
+                );
+            } catch (error) {
+                console.error(error);
+                completed = true;
+                lyricsElement.textContent =
+                    "歌詞の取得中にエラーが発生しました。";
+            }
+        }
+
+        function parseSyncedLyrics(lyricsText) {
+            const phrases = [];
+
+            for (const rawLine of String(lyricsText || "").split(/\r?\n/)) {
+                const timestamps = [
+                    ...rawLine.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)
+                ];
+
+                if (timestamps.length === 0) {
+                    continue;
+                }
+
+                const text = rawLine
+                    .replace(/\[\d+:\d+(?:\.\d+)?\]/g, "")
+                    .trim();
+
+                for (const match of timestamps) {
+                    phrases.push({
+                        startTime:
+                            (Number(match[1]) * 60 + Number(match[2])) * 1000,
+                        text: text || "♪",
+                    });
+                }
+            }
+
+            phrases.sort((a, b) => a.startTime - b.startTime);
+
+            return phrases.map((phrase, index) => ({
+                ...phrase,
+                endTime: phrases[index + 1]?.startTime ?? Infinity,
+            }));
+        }
+
+        function renderLyricsLines(phrases, lyricsElement) {
+            lyricsElement.replaceChildren();
+
+            return phrases.map((phrase) => {
+                const line = document.createElement("p");
+                line.className = "lyrics-line";
+                line.textContent = phrase.text || "\u00a0";
+                lyricsElement.appendChild(line);
+                return line;
+            });
+        }
+
+        function displayPlainLyrics(plainLyrics, lyricsElement) {
+            const phrases = String(plainLyrics || "")
+                .split(/\r?\n/)
+                .map((text) => ({ text }));
+
+            renderLyricsLines(phrases, lyricsElement);
+        }
+
+        function displaySyncedLyrics(phrases, lyricsElement) {
+            const lineElements = renderLyricsLines(phrases, lyricsElement);
+            let lastActiveIndex = -1;
+
+            function updateLyrics() {
+                const elapsedMs = performance.now() - lyricSync.updatedAt;
+                const positionMs = lyricSync.positionMs + elapsedMs;
+                let activeIndex = -1;
+
+                for (let index = 0; index < phrases.length; index++) {
+                    if (phrases[index].startTime <= positionMs) {
+                        activeIndex = index;
+                    } else {
+                        break;
+                    }
+                }
+
+                if (activeIndex !== lastActiveIndex) {
+                    lineElements.forEach((line, index) => {
+                        line.classList.toggle("is-past", index < activeIndex);
+                        line.classList.toggle("is-active", index === activeIndex);
+                    });
+
+                    if (activeIndex >= 0) {
+                        lineElements[activeIndex].scrollIntoView({
+                            behavior: "smooth",
+                            block: "center",
+                        });
+                    }
+
+                    lastActiveIndex = activeIndex;
+                }
+
+                activeAnimationFrameId =
+                    requestAnimationFrame(updateLyrics);
+            }
+
+            updateLyrics();
+        }
+
+        function loadLrclibLyrics(
+            lyricsText,
+            lyricsElement,
+            estimatedPosition
+        ) {
+            const phrases = parseSyncedLyrics(lyricsText);
+
+            if (phrases.length === 0) {
+                displayPlainLyrics(lyricsText, lyricsElement);
+                return;
+            }
+
+            updateLyricPosition(estimatedPosition);
+            displaySyncedLyrics(phrases, lyricsElement);
+        }
+
+        function loadLyrics(songUrl, lyricsElement, estimatedPosition) {
+            if (!songUrl) {
+                lyricsElement.textContent = "歌詞データのURLがありません。";
+                return;
+            }
+
+            if (!window.TextAliveApp) {
+                lyricsElement.textContent =
+                    "TextAliveライブラリを読み込めませんでした。";
+                return;
+            }
+
+            let player;
+            try {
+                player = new TextAliveApp.Player({
+                    app: { token: "REDACTED_TEXTALIVE_TOKEN" },
+                });
+            } catch (error) {
+                console.error(error);
+                lyricsElement.textContent = "歌詞の取得を開始できませんでした。";
+                return;
+            }
+
+            players.push(player);
+            player.addListener({
+                onVideoReady(video) {
+                    const phrases = Array.from(video.phrases || []);
+
+                    if (phrases.length === 0) {
+                        lyricsElement.textContent = "歌詞が見つかりませんでした。";
+                        return;
+                    }
+
+                    updateLyricPosition(estimatedPosition);
+                    displaySyncedLyrics(phrases, lyricsElement);
+                },
+            });
+
+            try {
+                Promise.resolve(player.createFromSongUrl(songUrl)).catch(
+                    (error) => {
+                        console.error(error);
+                        lyricsElement.textContent =
+                            "歌詞の取得中にエラーが発生しました。";
+                    }
+                );
+            } catch (error) {
+                console.error(error);
+                lyricsElement.textContent =
+                    "歌詞の取得中にエラーが発生しました。";
+            }
+        }
+
+        function createMusicCard(result) {
+            const item = document.createElement("li");
+            item.className = "music-card";
+
+            if (!result.recognized) {
+                item.classList.add("error");
+                item.textContent =
+                    (result.file ? result.file + " - " : "") + result.message;
+                return item;
+            }
+
+            const header = document.createElement("div");
+            header.className = "music-header";
+
+            if (result.imageUrl) {
+                const image = document.createElement("img");
+                image.className = "cover";
+                image.src = result.imageUrl;
+                image.alt = result.title + "のカバー画像";
+                header.appendChild(image);
+            }
+
+            const details = document.createElement("div");
+            const title = document.createElement("h2");
+            title.className = "music-title";
+            title.textContent = result.title;
+            details.appendChild(title);
+
+            const artist = document.createElement("p");
+            artist.className = "artist";
+            artist.textContent = result.artist;
+            details.appendChild(artist);
+
+            if (result.shazamUrl) {
+                const link = document.createElement("a");
+                link.href = result.shazamUrl;
+                link.textContent = "Shazamで開く";
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                details.appendChild(link);
+            }
+
+            header.appendChild(details);
+            item.appendChild(header);
+
+            const lyricsElement = document.createElement("div");
+            lyricsElement.className = "lyrics";
+            lyricsElement.textContent = "歌詞を取得しています...";
+            item.appendChild(lyricsElement);
+
+            //TextAliveとLRCLIBの処理の切り替え
+            if (result.lyricsProvider === "LRCLIB" && result.lyricsText) {
+                loadLrclibLyrics(
+                    result.lyricsText,
+                    lyricsElement,
+                    result.estimatedPosition
+                );
+            } else if (result.lyricsProvider === "TextAlive") {
+                loadLyrics(
+                    result.sourceUrl, 
+                    lyricsElement, 
+                    result.estimatedPosition
+                );
+            }else{
+                lyricsElement.textContent = "同期歌詞を取得できませんでした。";
+            }
+            return item;
+        }
+
+        function updateList(results) {
+            const list = document.getElementById("musics");
+            disposePlayers();
+            list.replaceChildren();
+
+            if (!results || results.length === 0) {
+                document.getElementById("status").textContent =
+                    "音楽ファイルが選択されませんでした。";
+                return;
+            }
+
+            for (const result of results) {
+                list.appendChild(createMusicCard(result));
+            }
+        }
+
+        async function onSelectMusic() {
+            const button = document.getElementById("open-button");
+            const listenButton = document.getElementById("listen-button");
+            const status = document.getElementById("status");
+            const restartAutomaticRecognition = automaticRecognitionEnabled;
+            automaticRecognitionEnabled = false;
+            button.disabled = true;
+            listenButton.disabled = true;
+            status.className = "";
+            status.textContent = "音楽を解析しています...";
+
+            try {
+                const results = await pywebview.api.selectMusic();
+                status.textContent = "";
+                updateList(results);
+            } catch (error) {
+                console.error(error);
+                status.textContent = "エラーが発生しました: " + error;
+                status.className = "error";
+            } finally {
+                button.disabled = false;
+                listenButton.disabled = false;
+                if (restartAutomaticRecognition) {
+                    startAutomaticRecognition();
+                }
+            }
+        }
+
+        async function automaticRecognitionLoop() {
+            if (automaticRecognitionRunning) {
+                return;
+            }
+
+            automaticRecognitionRunning = true;
+            const openButton = document.getElementById("open-button");
+            const listenButton = document.getElementById("listen-button");
+            const status = document.getElementById("status");
+
+            while (automaticRecognitionEnabled) {
+                openButton.disabled = true;
+                status.className = "";
+                status.textContent =
+                    "再生中の音声を12秒間録音して自動認識しています...";
+
+                try {
+                    const results =
+                        await pywebview.api.recognizePlayingMusic();
+                    const result = results && results[0];
+
+                    if (result && result.recognized) {
+                        const trackKey = result.title + "\n" + result.artist;
+                        status.textContent =
+                            result.title + " / " + result.artist + " を認識しました";
+
+                        updateLyricPosition(result.estimatedPosition);
+
+                        if (trackKey !== lastRecognizedTrack) {
+                            lastRecognizedTrack = trackKey;
+                            updateList(results);
+                        }
+                    } else if (result) {
+                        status.textContent = result.message;
+                    }
+                } catch (error) {
+                    console.error(error);
+                    status.textContent = "自動認識中にエラーが発生しました: " + error;
+                    status.className = "error";
+                }
+
+                openButton.disabled = false;
+                if (automaticRecognitionEnabled) {
+                    status.textContent += "。3秒後に再度認識します。";
+                    await wait(AUTO_RECOGNITION_INTERVAL_MS);
+                }
+            }
+
+            automaticRecognitionRunning = false;
+            openButton.disabled = false;
+            listenButton.disabled = false;
+            listenButton.textContent = "自動認識を開始";
+            status.className = "";
+            status.textContent = "自動認識を停止しました。";
+        }
+
+        function startAutomaticRecognition() {
+            automaticRecognitionEnabled = true;
+            document.getElementById("listen-button").textContent =
+                "自動認識を停止";
+            automaticRecognitionLoop();
+        }
+
+        function toggleAutomaticRecognition() {
+            if (automaticRecognitionEnabled) {
+                automaticRecognitionEnabled = false;
+                document.getElementById("listen-button").textContent =
+                    "停止処理中...";
+                document.getElementById("listen-button").disabled = true;
+                return;
+            }
+
+            document.getElementById("listen-button").disabled = false;
+            startAutomaticRecognition();
+        }
+
+        document
+            .getElementById("open-button")
+            .addEventListener("click", onSelectMusic);
+
+        document
+            .getElementById("listen-button")
+            .addEventListener("click", toggleAutomaticRecognition);
+
+        window.addEventListener("pywebviewready", () => {
+            document.getElementById("listen-button").disabled = false;
+            startAutomaticRecognition();
+        });
+    </script>
+</body>
+</html>
