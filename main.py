@@ -166,9 +166,6 @@ def record_system_audio(seconds=SYSTEM_AUDIO_RECORD_SECONDS):
         audio.terminate()
 
 
-# def getPlaybackPosition():
-
-
 async def analyzeMusic(music_path, capture_anchor=None):
     global latest_song
 
@@ -238,7 +235,9 @@ async def analyzeMusic(music_path, capture_anchor=None):
         )
 
         if lyrics_data:
-            lyrics_text = lyrics_data.get("plainLyrics")
+
+            lyrics_text = lyrics_data.get(
+                "syncedLyrics") or lyrics_data.get("plainLyrics")
             images = track.get("images", {})
             latest_song = keyword
             return {
