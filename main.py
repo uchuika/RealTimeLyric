@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import wave
+import time
 
 from shazamio import Shazam
 import webview
@@ -71,8 +72,17 @@ class Api:
         audio_path = None
 
         try:
+            # 録音開始時刻
+            record_started_at = time.monotonic()
             audio_path = record_system_audio(SYSTEM_AUDIO_RECORD_SECONDS)
-            result = asyncio.run(analyzeMusic(audio_path))
+
+            # 録音終了位置
+            record_end_at = time.monotonic()
+            # 録音期間の時刻を取得
+            capture_anchor = record_end_at - record_started_at
+
+            result = asyncio.run(analyzeMusic(audio_path, capture_anchor))
+
             result["file"] = "再生中の音声"
             return [result]
         except Exception as error:
@@ -156,8 +166,13 @@ def record_system_audio(seconds=SYSTEM_AUDIO_RECORD_SECONDS):
         audio.terminate()
 
 
-async def analyzeMusic(music_path):
+# def getPlaybackPosition():
+
+
+async def analyzeMusic(music_path, capture_anchor=None):
     global latest_song
+
+    analyzeMusic_start_at = time.monotonic()
 
     shazam = Shazam(language="ja-JP", endpoint_country="JP")
     try:
@@ -170,7 +185,9 @@ async def analyzeMusic(music_path):
         }
 
     track = result.get("track")
-    if not result.get("matches") or not track:
+    matches = result.get("matches")
+
+    if not matches or not track:
         print("曲を特定できませんでした")
         return {
             "recognized": False,
@@ -178,18 +195,40 @@ async def analyzeMusic(music_path):
             "message": "曲を特定できませんでした",
         }
 
+    offset = float(matches[0].get("offset"))
+    print(f"offset:{offset}")
+
+    # 推定再生位置
+    estimated_position = None
+
+    if offset is not None and capture_anchor is not None:
+        estimated_position = (
+            float(offset) + capture_anchor)
+    print(f"estimatedOffset:{estimated_position}")
+
     # タイトルとアーティスト名で検索
     keyword = track.get("title", "") + " " + track.get("subtitle", "")
-    songs = search_songle(keyword=keyword)
     print("検索: " + keyword)
 
+    # 同じ曲の場合歌詞取得をスキップ
     if latest_song == keyword:
-        print("同じ曲なのでスキップしました。")
+        print("同じ曲なので再生位置を更新")
         return {
-            "recognized": False,
+            "recognized": True,
             "file": music_path,
-            "message": "同じ曲なのでスキップしました",
+            "message": "同じ曲なので再生位置を更新",
+            "title": track.get("title", "不明"),
+            "artist": track.get("subtitle", "不明"),
+            "lyricsProvider": "TextAlive",
+            "estimatedPosition": estimated_position,
         }
+
+    # songle検索
+    songs = search_songle(keyword=keyword)
+
+    analyzeMusic_end_at = time.monotonic()
+    estimated_position += analyzeMusic_end_at - analyzeMusic_start_at
+    print(f"estimatedOffset:{estimated_position}")
 
     if not songs:
         print("TextAliveに歌詞が登録されている楽曲は見つかりませんでした。")
@@ -214,6 +253,7 @@ async def analyzeMusic(music_path):
                 "lyricsTrackName": lyrics_data.get("trackName"),
                 "lyricsArtistName": lyrics_data.get("artistName"),
                 "lyricsAlbumName": lyrics_data.get("albumName"),
+                "estimatedPosition": estimated_position,
             }
 
         return {
@@ -243,6 +283,7 @@ async def analyzeMusic(music_path):
         "lyricsProvider": "TextAlive",
         "sourceUrl": song["source_url"],
         "songlUrl": songleurl,
+        "estimatedPosition": estimated_position,
     }
 
 

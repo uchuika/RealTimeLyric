@@ -111,8 +111,20 @@
         let automaticRecognitionRunning = false;
         let lastRecognizedTrack = "";
 
+        //同期用変数
+        let lyricSync = {
+            positionMs: 0,
+            updatedAt: 0,
+        };
+
         function wait(milliseconds) {
             return new Promise((resolve) => setTimeout(resolve, milliseconds));
+        }
+
+        //歌詞のタイミング更新用関数
+        function updateLyricPosition(estimatedPosition) {
+            lyricSync.positionMs = Math.max(0, Number(estimatedPosition || 0) * 1000);
+            lyricSync.updatedAt = performance.now();
         }
 
         function disposePlayers() {
@@ -126,7 +138,7 @@
             }
         }
 
-        function loadLyrics(songUrl, lyricsElement) {
+        function loadLyrics(songUrl, lyricsElement, estimatedPosition) {
             if (!songUrl) {
                 lyricsElement.textContent = "歌詞データのURLがありません。";
                 return;
@@ -151,9 +163,19 @@
             }
             players.push(player);
 
+            //estimatedPositionをミリ秒に変換
+            const initialPositionMs = Number(estimatedPosition + 5 || 0) * 1000;
+
+            //基準を設定
+            //const clockStartedAt = performance.now();
+            let animationFrameId = null;
+
             let completed = false;
             player.addListener({
                 onVideoReady(video) {
+                    const phrases = video.phrases || [];
+                    let lastPhrase = null;
+                    /*
                     if (completed) {
                         return;
                     }
@@ -164,10 +186,40 @@
                         .filter(Boolean)
                         .join("\n");
 
-                    
+                    const animateWord = function (now, unit) {
+                        if (unit.contains(now)) {
+                            lyricsElement.textContent = unit.text;
+                        }
+                    };
+
+                    let w = player.video.firstWord;
+                    while(w){
+                        w.animate = animateWord;
+                        w = w.next;
+                    }
 
                     lyricsElement.textContent =
                         lyrics || "この楽曲から歌詞を取得できませんでした。";
+                    */
+                    function updateLyrics() {
+                        const elapsedMs = performance.now() - lyricSync.updatedAt;
+                        const positionMs = lyricSync.positionMs + elapsedMs;
+
+                        const phrase = phrases.find(
+                            (item) =>
+                                item.startTime <= positionMs &&
+                                positionMs < item.endTime
+                        );
+
+                        if (phrase && phrase !== lastPhrase) {
+                            lastPhrase = phrase;
+                            lyricsElement.textContent = phrase.text;
+                        }
+
+                            animationFrameId = requestAnimationFrame(updateLyrics);
+                        }
+
+                    updateLyrics();
                 },
             });
 
@@ -238,10 +290,11 @@
             lyricsElement.textContent = "歌詞を取得しています...";
             item.appendChild(lyricsElement);
 
+            //TextAliveとLRCLIBの処理の切り替え
             if (result.lyricsText) {
                 lyricsElement.textContent = result.lyricsText;
             } else {
-                loadLyrics(result.sourceUrl, lyricsElement);
+                loadLyrics(result.sourceUrl, lyricsElement, result.estimatedPosition);
             }
             return item;
         }
@@ -315,6 +368,8 @@
                         const trackKey = result.title + "\n" + result.artist;
                         status.textContent =
                             result.title + " / " + result.artist + " を認識しました";
+
+                        updateLyricPosition(result.estimatedPosition);
 
                         if (trackKey !== lastRecognizedTrack) {
                             lastRecognizedTrack = trackKey;
