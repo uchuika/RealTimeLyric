@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 import xml.etree.ElementTree as ET
 
 
-SYSTEM_AUDIO_RECORD_SECONDS = 12
+SYSTEM_AUDIO_RECORD_SECONDS = 5
 SYSTEM_AUDIO_CHUNK_SIZE = 1024
 LRCLIB_API_URL = "https://lrclib.net/api/get"
 
