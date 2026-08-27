@@ -14,6 +14,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import quote, unquote, urlparse
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
 import xml.etree.ElementTree as ET
 
 
@@ -22,6 +24,18 @@ SYSTEM_AUDIO_CHUNK_SIZE = 1024
 LRCLIB_API_URL = "https://lrclib.net/api/get"
 
 latest_song = None
+
+# キャッシュデータベース用
+engine = create_engine("sqlite:///lyrics_cache.db")
+
+Base = declarative_base()
+# データベースモデルクラス
+
+# ToDo データベースによるキャッシュを実装
+# class LyricsCache(Base):
+#    __tablename__ = "lyrics_cache"
+#
+#    cache_key = Mapped[str] = mapped_column(String(255), primary_key=True)
 
 
 class NextDataParser(HTMLParser):
@@ -220,70 +234,39 @@ async def analyzeMusic(music_path, capture_anchor=None):
             "estimatedPosition": estimated_position,
         }
 
-    # songle検索
-    songs = search_songle(keyword=keyword)
-
     analyzeMusic_end_at = time.monotonic()
     estimated_position += analyzeMusic_end_at - analyzeMusic_start_at
     print(f"estimatedOffset:{estimated_position}")
 
-    if not songs:
-        print("TextAliveに歌詞が登録されている楽曲は見つかりませんでした。")
-        lyrics_data = search_lrclib_lyrics(
-            track_name=track.get("title", ""),
-            artist_name=track.get("subtitle", ""),
-        )
-
-        if lyrics_data:
-
-            lyrics_text = lyrics_data.get(
-                "syncedLyrics") or lyrics_data.get("plainLyrics")
-            images = track.get("images", {})
-            latest_song = keyword
-            return {
-                "recognized": True,
-                "file": music_path,
-                "title": track.get("title", "不明"),
-                "artist": track.get("subtitle", "不明"),
-                "imageUrl": images.get("coverarthq") or images.get("coverart"),
-                "shazamUrl": track.get("share", {}).get("href"),
-                "lyricsProvider": "LRCLIB",
-                "lyricsText": lyrics_text,
-                "lyricsTrackName": lyrics_data.get("trackName"),
-                "lyricsArtistName": lyrics_data.get("artistName"),
-                "lyricsAlbumName": lyrics_data.get("albumName"),
-                "estimatedPosition": estimated_position,
-            }
-
+    lyrics_data = search_lrclib_lyrics(
+        track_name=track.get("title", ""),
+        artist_name=track.get("subtitle", ""),
+    )
+    if lyrics_data:
+        lyrics_text = lyrics_data.get(
+            "syncedLyrics") or lyrics_data.get("plainLyrics")
+        images = track.get("images", {})
+        latest_song = keyword
+        return {
+            "recognized": True,
+            "file": music_path,
+            "title": track.get("title", "不明"),
+            "artist": track.get("subtitle", "不明"),
+            "imageUrl": images.get("coverarthq") or images.get("coverart"),
+            "shazamUrl": track.get("share", {}).get("href"),
+            "lyricsProvider": "LRCLIB",
+            "lyricsText": lyrics_text,
+            "lyricsTrackName": lyrics_data.get("trackName"),
+            "lyricsArtistName": lyrics_data.get("artistName"),
+            "lyricsAlbumName": lyrics_data.get("albumName"),
+            "estimatedPosition": estimated_position,
+        }
+    else:
         return {
             "recognized": False,
             "file": music_path,
-            "message": "TextAliveとLRCLIBのどちらにも歌詞が見つかりませんでした",
+            "message": "LRCLIBに歌詞が見つかりませんでした",
         }
-
-    for index, song in enumerate(songs, start=1):
-        print(f"\n{index}. {song['title']}")
-        print(f"   アーティスト: {song['artist']}")
-        print(f"   配信元: {song['source']}")
-        print(f"   楽曲URL: {song['source_url']}")
-        print(f"   Songle: {song['songle_url']}")
-
-    song = songs[0]
-    songleurl = song['songle_url']
-    images = track.get("images", {})
-    latest_song = keyword
-    return {
-        "recognized": True,
-        "file": music_path,
-        "title": track.get("title", "不明"),
-        "artist": track.get("subtitle", "不明"),
-        "imageUrl": images.get("coverarthq") or images.get("coverart"),
-        "shazamUrl": track.get("share", {}).get("href"),
-        "lyricsProvider": "TextAlive",
-        "sourceUrl": song["source_url"],
-        "songlUrl": songleurl,
-        "estimatedPosition": estimated_position,
-    }
 
 
 def search_lrclib_lyrics(
@@ -328,82 +311,8 @@ def search_lrclib_lyrics(
     return data
 
 
-def has_textalive_lyrics(songle_url):
-    # TexAliveでの対象楽曲の歌詞解析が利用可能かどうか確認する
-    song_path = songle_url.split("/songs/", 1)[-1]
-    textalive_url = f"https://textalive.jp/songs/{song_path}"
-    request = Request(textalive_url, headers={"User-Agent": "Mozilla/5.0"})
-
-    try:
-        with urlopen(request, timeout=10) as response:
-            html = response.read().decode("utf-8")
-
-        parser = NextDataParser()
-        parser.feed(html)
-        if not parser.next_data:
-            return False
-
-        data = json.loads("".join(parser.next_data))
-        if not isinstance(data, dict):
-            return False
-
-        props = data.get("props")
-        if not isinstance(props, dict):
-            return False
-
-        page_props = props.get("pageProps")
-        if not isinstance(page_props, dict):
-            return False
-
-        song = page_props.get("song")
-        if not isinstance(song, dict):
-            return False
-
-        status = song.get("status")
-        if not isinstance(status, dict):
-            return False
-
-        return bool(status.get("lyrics"))
-
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return False
-
-
-def search_songle(keyword, limit=20):
-    # songle内のデータベースをキーワードで検索
-    url = f"https://songle.jp/songs/search.rss?q={quote(keyword)}"
-    request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-
-    with urlopen(request, timeout=10) as response:
-        root = ET.fromstring(response.read())
-
-    results = []
-
-    # レスポンス解析
-    for item in root.findall("./channel/item"):
-        songle_url = item.findtext("link", "")
-        if not songle_url or not has_textalive_lyrics(songle_url):
-            continue
-
-        songle_path = unquote(songle_url.split("/songs/", 1)[-1])
-        source_url = (
-            songle_path
-            if songle_path.startswith(("http://", "https://"))
-            else f"https://{songle_path}"
-        )
-
-        results.append({
-            "title": item.findtext("title", ""),
-            "artist": item.findtext("author", ""),
-            "source": urlparse(source_url).hostname,
-            "source_url": source_url,
-            "songle_url": songle_url,
-        })
-
-        if len(results) >= limit:
-            break
-    return results
-
+# def get_cached_lyrics(track):
+#    #ToDo データベースによるキャッシュを実装
 
 api = Api()
 window = webview.create_window(
