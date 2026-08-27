@@ -1,22 +1,21 @@
 import asyncio
 import json
 import os
+import sys
 import tempfile
 import wave
 import time
+from pathlib import Path
 
 from shazamio import Shazam
 import webview
 
 from typing import Any, Optional
-from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
-from urllib.request import quote, unquote, urlparse
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-import xml.etree.ElementTree as ET
 
 
 SYSTEM_AUDIO_RECORD_SECONDS = 5
@@ -36,28 +35,6 @@ Base = declarative_base()
 #    __tablename__ = "lyrics_cache"
 #
 #    cache_key = Mapped[str] = mapped_column(String(255), primary_key=True)
-
-
-class NextDataParser(HTMLParser):
-    """TextAliveページに埋め込まれたNext.jsのJSONを取り出す。"""
-
-    def __init__(self):
-        super().__init__()
-        self.in_next_data = False
-        self.next_data = []
-
-    def handle_starttag(self, tag, attrs):
-        attributes = dict(attrs)
-        if tag == "script" and attributes.get("id") == "__NEXT_DATA__":
-            self.in_next_data = True
-
-    def handle_data(self, data):
-        if self.in_next_data:
-            self.next_data.append(data)
-
-    def handle_endtag(self, tag):
-        if tag == "script" and self.in_next_data:
-            self.in_next_data = False
 
 
 class Api:
@@ -230,12 +207,13 @@ async def analyzeMusic(music_path, capture_anchor=None):
             "message": "同じ曲なので再生位置を更新",
             "title": track.get("title", "不明"),
             "artist": track.get("subtitle", "不明"),
-            "lyricsProvider": "TextAlive",
+            "lyricsProvider": "LRCLIB",
             "estimatedPosition": estimated_position,
         }
 
     analyzeMusic_end_at = time.monotonic()
-    estimated_position += analyzeMusic_end_at - analyzeMusic_start_at
+    if estimated_position is not None:
+        estimated_position += analyzeMusic_end_at - analyzeMusic_start_at
     print(f"estimatedOffset:{estimated_position}")
 
     lyrics_data = search_lrclib_lyrics(
@@ -314,7 +292,12 @@ def search_lrclib_lyrics(
 # def get_cached_lyrics(track):
 #    #ToDo データベースによるキャッシュを実装
 
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys._MEIPASS)
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+
 api = Api()
 window = webview.create_window(
-    "RealTimeLyric", url="web/index.html", js_api=api)
+    "RealTimeLyric", url=str(BASE_DIR / "web" / "index.html"), js_api=api)
 webview.start(http_server=True, debug=True)

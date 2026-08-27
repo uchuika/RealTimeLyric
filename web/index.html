@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RealTimeLyric</title>
     <script src="https://unpkg.com/axios@1.7.9/dist/axios.min.js"></script>
-    <script src="https://unpkg.com/textalive-app-api@0.4.0/dist/index.js"></script>
     <style>
         body {
             margin: 0;
@@ -128,7 +127,6 @@
     </main>
 
     <script>
-        const players = [];
         const AUTO_RECOGNITION_INTERVAL_MS = 3000;
         let automaticRecognitionEnabled = false;
         let automaticRecognitionRunning = false;
@@ -155,170 +153,9 @@
                 cancelAnimationFrame(activeAnimationFrameId);
                 activeAnimationFrameId = null;
             }
-
-            while (players.length > 0) {
-                const player = players.pop();
-                try {
-                    player.dispose();
-                } catch (error) {
-                    console.error(error);
-                }
-            }
         }
 
-        //受け取った歌詞データを変換
-        function parseLrc(syncedLyrics) {
-            const lines = [];
-
-            for (const rawLine of syncedLyrics.split(/\r?\n/)) {
-                const timestamps = [...rawLine.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)];
-
-                const text = rawLine.replace(/\[\d+:\d+(?:\.\d+)?\]/g, "").trim();
-
-                if (Object.keys(timestamps).length === 0) {
-                    return syncedLyrics;
-                }
-
-                //配列の中から時刻を取り出し
-                for(const match of timestamps) {
-                    const minutes = Number(match[1]);
-                    const seconds = Number(match[2]);
-
-                    lines.push({
-                        startTime: (minutes * 60 + seconds) * 1000,
-                        text,
-                    });
-                }
-            }
-
-            //再生が早いタイミング順で並び替え
-            lines.sort((a, b) => a.startTime - b.startTime);
-
-            //startTime: text: endTime
-            return lines.map((line, index) => ({
-                ...line,
-                endTime: lines[index + 1]?.startTime ?? Infinity,
-            }));
-        }
-
-        //LRCLIB用歌詞表示関数
         let activeAnimationFrameId = null;
-
-        function loadLrclibLyrics(
-            syncedLyrics,
-            lyricsElement,
-            estimatedPosition
-        ) {
-            const phrases = parseLrc(syncedLyrics);
-        
-            if (phrases.length === 0) {
-                lyricsElement.textContent = syncedLyrics;4
-                return;
-            }
-        
-            updateLyricPosition(estimatedPosition);
-        
-            let lastPhrase = null;
-        
-            function updateLyrics() {
-                const elapsedMs =
-                    performance.now() - lyricSync.updatedAt;
-            
-                const positionMs =
-                    lyricSync.positionMs + elapsedMs;
-            
-                const phrase = phrases.find(
-                    (item) =>
-                        item.startTime <= positionMs &&
-                        positionMs < item.endTime
-                );
-            
-                if (phrase && phrase !== lastPhrase) {
-                    lastPhrase = phrase;
-                    lyricsElement.textContent = phrase.text;
-                }
-            
-                activeAnimationFrameId =
-                    requestAnimationFrame(updateLyrics);
-            }
-        
-            updateLyrics();
-        }
-
-        //TextAlive用歌詞表示関数
-        function loadLyrics(songUrl, lyricsElement, estimatedPosition) {
-            if (!songUrl) {
-                lyricsElement.textContent = "歌詞データのURLがありません。";
-                return;
-            }
-
-            if (!window.TextAliveApp) {
-                lyricsElement.textContent =
-                    "TextAliveライブラリを読み込めませんでした。";
-                return;
-            }
-
-            let player;
-            try {
-                player = new TextAliveApp.Player({
-                    app: { token: "REDACTED_TEXTALIVE_TOKEN" },
-                });
-            } catch (error) {
-                console.error(error);
-                lyricsElement.textContent =
-                    "歌詞の取得を開始できませんでした。";
-                return;
-            }
-            players.push(player);
-
-            //基準を設定
-            //const clockStartedAt = performance.now();
-            let animationFrameId = null;
-
-            let completed = false;
-            player.addListener({
-                onVideoReady(video) {
-                    const phrases = video.phrases || [];
-                    let lastPhrase = null;
-
-                    function updateLyrics() {
-                        const elapsedMs = performance.now() - lyricSync.updatedAt;
-                        const positionMs = lyricSync.positionMs + elapsedMs;
-
-                        const phrase = phrases.find(
-                            (item) =>
-                                item.startTime <= positionMs &&
-                                positionMs < item.endTime
-                        );
-
-                        if (phrase && phrase !== lastPhrase) {
-                            lastPhrase = phrase;
-                            lyricsElement.textContent = phrase.text;
-                        }
-
-                            animationFrameId = requestAnimationFrame(updateLyrics);
-                        }
-
-                    updateLyrics();
-                },
-            });
-
-            try {
-                Promise.resolve(player.createFromSongUrl(songUrl)).catch(
-                    (error) => {
-                        console.error(error);
-                        completed = true;
-                        lyricsElement.textContent =
-                            "歌詞の取得中にエラーが発生しました。";
-                    }
-                );
-            } catch (error) {
-                console.error(error);
-                completed = true;
-                lyricsElement.textContent =
-                    "歌詞の取得中にエラーが発生しました。";
-            }
-        }
 
         function parseSyncedLyrics(lyricsText) {
             const phrases = [];
@@ -429,59 +266,6 @@
             displaySyncedLyrics(phrases, lyricsElement);
         }
 
-        function loadLyrics(songUrl, lyricsElement, estimatedPosition) {
-            if (!songUrl) {
-                lyricsElement.textContent = "歌詞データのURLがありません。";
-                return;
-            }
-
-            if (!window.TextAliveApp) {
-                lyricsElement.textContent =
-                    "TextAliveライブラリを読み込めませんでした。";
-                return;
-            }
-
-            let player;
-            try {
-                player = new TextAliveApp.Player({
-                    app: { token: "REDACTED_TEXTALIVE_TOKEN" },
-                });
-            } catch (error) {
-                console.error(error);
-                lyricsElement.textContent = "歌詞の取得を開始できませんでした。";
-                return;
-            }
-
-            players.push(player);
-            player.addListener({
-                onVideoReady(video) {
-                    const phrases = Array.from(video.phrases || []);
-
-                    if (phrases.length === 0) {
-                        lyricsElement.textContent = "歌詞が見つかりませんでした。";
-                        return;
-                    }
-
-                    updateLyricPosition(estimatedPosition);
-                    displaySyncedLyrics(phrases, lyricsElement);
-                },
-            });
-
-            try {
-                Promise.resolve(player.createFromSongUrl(songUrl)).catch(
-                    (error) => {
-                        console.error(error);
-                        lyricsElement.textContent =
-                            "歌詞の取得中にエラーが発生しました。";
-                    }
-                );
-            } catch (error) {
-                console.error(error);
-                lyricsElement.textContent =
-                    "歌詞の取得中にエラーが発生しました。";
-            }
-        }
-
         function createMusicCard(result) {
             const item = document.createElement("li");
             item.className = "music-card";
@@ -532,20 +316,13 @@
             lyricsElement.textContent = "歌詞を取得しています...";
             item.appendChild(lyricsElement);
 
-            //TextAliveとLRCLIBの処理の切り替え
             if (result.lyricsProvider === "LRCLIB" && result.lyricsText) {
                 loadLrclibLyrics(
                     result.lyricsText,
                     lyricsElement,
                     result.estimatedPosition
                 );
-            } else if (result.lyricsProvider === "TextAlive") {
-                loadLyrics(
-                    result.sourceUrl, 
-                    lyricsElement, 
-                    result.estimatedPosition
-                );
-            }else{
+            } else {
                 lyricsElement.textContent = "同期歌詞を取得できませんでした。";
             }
             return item;
@@ -609,7 +386,7 @@
                 openButton.disabled = true;
                 status.className = "";
                 status.textContent =
-                    "再生中の音声を12秒間録音して自動認識しています...";
+                    "再生中の音声を5秒間録音して自動認識しています...";
 
                 try {
                     const results =
